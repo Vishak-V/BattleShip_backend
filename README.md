@@ -1,7 +1,3 @@
-Here's a README template for your GitHub repository that describes the backend for an app that accepts AI models built to play Battleship and plays them against each other:
-
----
-
 # Battleship AI Backend
 
 ## Overview
