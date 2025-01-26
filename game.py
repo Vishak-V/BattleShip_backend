@@ -80,18 +80,23 @@ def play_game():
             print("\nPlayer 1's turn:")
             display_matrix(player2_matrix)
             x, y = map(int, input("Enter the row and column to drop the bomb (e.g., '3 4'): ").split())
-            drop_bomb(player2_matrix, x, y)
+            hit=drop_bomb(player2_matrix, x, y)
             if all_ships_destroyed(player2_matrix):
                 print("Player 1 wins! All ships destroyed.")
                 break
+            if hit:
+                continue
+
         else:
             print("\nPlayer 2's turn:")
             display_matrix(player1_matrix)
             x, y = map(int, input("Enter the row and column to drop the bomb (e.g., '3 4'): ").split())
-            drop_bomb(player1_matrix, x, y)
+            hit=drop_bomb(player1_matrix, x, y)
             if all_ships_destroyed(player1_matrix):
                 print("Player 2 wins! All ships destroyed.")
                 break
+            if hit:
+                continue
         player_turn = 3 - player_turn  # Switch turn between 1 and 2
 
 
