@@ -1,61 +1,83 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, BackgroundTasks, UploadFile, File
 import os
+import time
 import subprocess
-import uuid
-import docker
+from threading import Thread
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 app = FastAPI()
 
-# Initialize Docker client
-client = docker.from_env()
+UPLOADS_DIR = "uploads"
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+processed_scripts = set()
 
-# Directory to save uploaded Python files
-UPLOAD_DIR = "./uploads"
+# Thread pool for executing scripts concurrently
+executor = ThreadPoolExecutor(max_workers=5)
 
-# Ensure the upload directory exists
-Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
-
-
-def run_python_in_docker(python_file_path: str):
-    # Create a unique ID for the container to avoid name conflicts
-    container_name = f"python-container-{uuid.uuid4().hex[:6]}"
-
-    # Create a Docker container with Python and mount the Python file
-    container = client.containers.run(
-        "python:3.9",  # Python Docker image
-        f"python /mnt/{os.path.basename(python_file_path)}",
-        volumes={UPLOAD_DIR: {'bind': '/mnt', 'mode': 'rw'}},  # Mount the upload directory
-        name=container_name,
-        detach=True
-    )
-
-    # Wait for the container to finish running
-    container.wait()
-
-    # Get the output from the container's logs
-    logs = container.logs().decode("utf-8")
-
-    # Clean up the container
-    container.remove()
-
-    return logs
+@app.get("/")
+async def read_root():
+    return {"message": "Hello, World!"}
 
 
-@app.post("/run-python/")
-async def run_python_file(file: UploadFile = File(...)):
+@app.post("/upload-script/")
+async def upload_script(file: UploadFile = File(...)):
+    """
+    Upload a Python script and save it to the uploads directory.
+    """
+    file_path = os.path.join(UPLOADS_DIR, file.filename)
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
+
+    return {"message": f"File '{file.filename}' uploaded successfully."}
+
+
+def run_script_in_docker(script_name):
+    """
+    Run a Python script inside a Docker container.
+    """
+    print(f"Running script: {script_name}")
+    script_path = os.path.join(UPLOADS_DIR, script_name)
     try:
-        # Save the uploaded Python file to disk
-        file_path = os.path.join(UPLOAD_DIR, file.filename)
-        with open(file_path, "wb") as f:
-            f.write(await file.read())
+        result = subprocess.run([
+            "docker", "run", "--rm",
+            "-v", f"{os.getcwd()}/{UPLOADS_DIR}:/app/uploads",
+            "python:3.9-slim", "python", f"/app/uploads/{script_name}"
+        ], check=True, capture_output=True, text=True)
 
-        # Run the Python file inside Docker
-        output = run_python_in_docker(file_path)
+        print(f"Output from {script_name}:\n{result.stdout}")
+    except subprocess.CalledProcessError as e:
+        print(f"Error running {script_name}: {e.stderr}")
 
-        # Return the output as a response
-        return JSONResponse(content={"output": output})
 
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+def monitor_directory():
+    """
+    Monitor the uploads directory for new scripts and execute them.
+    """
+    global processed_scripts
+    print(f"Monitoring directory: {UPLOADS_DIR}")
+    while True:
+        try:
+            # Get the list of Python scripts in the uploads directory
+            scripts = [f for f in os.listdir(UPLOADS_DIR) if f.endswith(".py")]
+            new_scripts = [s for s in scripts if s not in processed_scripts]
+
+            for script in new_scripts:
+                # Submit the script for execution
+                executor.submit(run_script_in_docker, script)
+                processed_scripts.add(script)
+
+            time.sleep(2)  # Avoid high CPU usage
+        except Exception as e:
+            print(f"Error monitoring directory: {e}")
+            break
+
+
+@app.on_event("startup")
+def start_monitoring():
+    """
+    Start monitoring the uploads directory when the FastAPI app starts.
+    """
+    print("Starting monitoring thread...")
+    monitor_thread = Thread(target=monitor_directory, daemon=True)
+    monitor_thread.start()
