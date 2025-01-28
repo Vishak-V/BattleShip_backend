@@ -11,6 +11,7 @@ app = FastAPI()
 # Initialize Docker client
 client = docker.from_env()
 
+
 # Directory to save uploaded Python files
 UPLOAD_DIR = "./uploads"
 
@@ -42,6 +43,9 @@ def run_python_in_docker(python_file_path: str):
 
     return logs
 
+@app.get("/")
+def hello():
+    return "hello World"
 
 @app.post("/run-python/")
 async def run_python_file(file: UploadFile = File(...)):
