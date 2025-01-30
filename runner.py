@@ -2,9 +2,9 @@ import os
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
+import threading
 import sys
 
-# Enable line buffering for immediate log output
 sys.stdout.reconfigure(line_buffering=True)
 
 print("Runner script has started.")
@@ -12,49 +12,45 @@ print("Runner script has started.")
 UPLOADS_DIR = "uploads"  # Directory for uploaded scripts
 SCRIPT_RUNNER_IMAGE = "python:3.9-slim"  # Base image for script execution
 
+# Shared dictionary to store script outputs
+script_outputs = {}
+outputs_lock = threading.Lock()
+
 # Ensure the uploads directory exists
 os.makedirs(UPLOADS_DIR, exist_ok=True)
-
-
-def is_utf8(file_path):
-    """
-    Check if a file is UTF-8 encoded.
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            f.read()
-        return True
-    except UnicodeDecodeError:
-        return False
 
 
 def run_script_in_container(script_name):
     """
     Start a Docker container to execute the given Python script.
     """
+    global script_outputs
     print(f"Running script: {script_name}")
     script_path = os.path.join(UPLOADS_DIR, script_name)
 
-    # Check if the file is UTF-8 encoded before execution
-    if not is_utf8(script_path):
-        print(f"Error: The file {script_name} is not UTF-8 encoded. Skipping execution.")
-        return
-
     try:
-        # Run the script inside a Docker container
         result = subprocess.run([
             "docker", "run", "--rm",
             "-v", f"{os.getcwd()}/{UPLOADS_DIR}:/app/uploads",
             SCRIPT_RUNNER_IMAGE, "python", f"/app/uploads/{script_name}"
         ], check=True, capture_output=True, text=True)
 
-        # Log the output of the script
+        # Store the output of the script in the dictionary
+        with outputs_lock:
+            script_outputs[script_name] = result.stdout.strip()
+
         print(f"Output from {script_name}:\n{result.stdout}")
         print(f"Script {script_name} executed successfully.")
     except subprocess.CalledProcessError as e:
-        print(f"Error running {script_name}: {e.stderr}")
+        error_msg = f"Error running {script_name}: {e.stderr.strip()}"
+        with outputs_lock:
+            script_outputs[script_name] = error_msg
+        print(error_msg)
     except Exception as e:
-        print(f"Unexpected error while running {script_name}: {e}")
+        error_msg = f"Unexpected error while running {script_name}: {e}"
+        with outputs_lock:
+            script_outputs[script_name] = error_msg
+        print(error_msg)
 
 
 def monitor_and_run_scripts():
