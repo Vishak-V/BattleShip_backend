@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  python-runner:
+    build:
+      context: .
+    volumes:
+      - ./uploads:/app/uploads # Mount the uploads folder
+    command: python runner.py # Run the monitoring script
