@@ -25,7 +25,7 @@ def run_python_in_docker(python_file_path: str):
 
     # Create a Docker container with Python and mount the Python file
     container = client.containers.run(
-        "python:3.9",  # Python Docker image
+        "python:3.12",  # Python Docker image
         f"python /mnt/{os.path.basename(python_file_path)}",
         volumes={UPLOAD_DIR: {'bind': '/mnt', 'mode': 'rw'}},  # Mount the upload directory
         name=container_name,
@@ -37,10 +37,6 @@ def run_python_in_docker(python_file_path: str):
 
     # Get the output from the container's logs
     logs = container.logs().decode("utf-8")
-
-    # Clean up the container
-    container.remove()
-
     return logs
 
 @app.get("/")
