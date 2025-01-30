@@ -2,7 +2,7 @@ from fastapi import FastAPI, BackgroundTasks, UploadFile, File
 import os
 import time
 import subprocess
-from threading import Thread
+from threading import Thread, Lock
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -10,10 +10,15 @@ app = FastAPI()
 
 UPLOADS_DIR = "uploads"
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+# Shared resources
 processed_scripts = set()
+script_outputs = {}
+outputs_lock = Lock()
 
 # Thread pool for executing scripts concurrently
 executor = ThreadPoolExecutor(max_workers=5)
+
 
 @app.get("/")
 async def read_root():
@@ -34,20 +39,35 @@ async def upload_script(file: UploadFile = File(...)):
 
 def run_script_in_docker(script_name):
     """
-    Run a Python script inside a Docker container.
+    Run a Python script inside a Docker container and capture its output.
     """
+    global script_outputs
     print(f"Running script: {script_name}")
     script_path = os.path.join(UPLOADS_DIR, script_name)
+
     try:
+        # Run the script inside a Docker container
         result = subprocess.run([
             "docker", "run", "--rm",
             "-v", f"{os.getcwd()}/{UPLOADS_DIR}:/app/uploads",
             "python:3.9-slim", "python", f"/app/uploads/{script_name}"
         ], check=True, capture_output=True, text=True)
 
+        # Store the output in the shared dictionary
+        with outputs_lock:
+            script_outputs[script_name] = result.stdout.strip()
+
         print(f"Output from {script_name}:\n{result.stdout}")
     except subprocess.CalledProcessError as e:
-        print(f"Error running {script_name}: {e.stderr}")
+        error_message = f"Error running {script_name}: {e.stderr.strip()}"
+        with outputs_lock:
+            script_outputs[script_name] = error_message
+        print(error_message)
+    except Exception as e:
+        unexpected_error = f"Unexpected error while running {script_name}: {e}"
+        with outputs_lock:
+            script_outputs[script_name] = unexpected_error
+        print(unexpected_error)
 
 
 def monitor_directory():
@@ -71,6 +91,15 @@ def monitor_directory():
         except Exception as e:
             print(f"Error monitoring directory: {e}")
             break
+
+
+@app.get("/script-outputs/")
+async def get_script_outputs():
+    """
+    Retrieve the outputs of all executed scripts.
+    """
+    with outputs_lock:
+        return {"outputs": script_outputs}
 
 
 @app.on_event("startup")
