@@ -68,3 +68,4 @@ This repository contains the backend for an app that allows users to submit thei
    ```
 
    The backend should now be running on `http://127.0.0.1:8000`.
+   Try `http://localhost:8000/docs#/` to see a more interactive UI. 
