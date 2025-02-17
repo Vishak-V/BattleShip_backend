@@ -62,8 +62,23 @@ def hello():
 #     except Exception as e:
 #         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-@app.post("/upload/")
+@app.post("/tournament/")
 async def upload_files(files: List[UploadFile] = File(...)):
+    bot_files = []
+    for file in files:
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+        bot_files.append(file.filename)
+    
+    rankings = run_tournament(bot_files)
+    return {"rankings": rankings}
+
+@app.post("/play/")
+async def play_two_bots(files: List[UploadFile] = File(...)):
+    if len(files) != 2:
+        return {"error": "Exactly two files must be uploaded."}
+    
     bot_files = []
     for file in files:
         file_path = os.path.join(UPLOAD_DIR, file.filename)
