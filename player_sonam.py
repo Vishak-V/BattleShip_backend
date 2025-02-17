@@ -306,11 +306,29 @@ def start_game(player1, player2):
 
 
 
-player1 = Player("Player1")
-player2 = Player("Player2")
+# player1 = Player("Player1")
+# player2 = Player("Player2")
 
-# player1.display_board()
-winner = start_game(player1, player2)
-print(f"The winner is {winner}")
-print("Player 1 wins: {player1.wins}")
-print("Player 2 wins: {player2.wins}")
+# # player1.display_board()
+# winner = start_game(player1, player2)
+# print(f"The winner is {winner}")
+# print("Player 1 wins: {player1.wins}")
+# print("Player 2 wins: {player2.wins}")
+
+def play_bots(bot1:str,bot2:str):
+    '''
+    Takes in the file names and returns a winner
+    '''
+    player1 = Player("Player1")
+    player2 = Player("Player2")
+
+    # player1.display_board()
+    winner = start_game(player1, player2)
+    print(f"The winner is {winner}")
+    print("Player 1 wins: {player1.wins}")
+    print("Player 2 wins: {player2.wins}")
+    return winner
+
+play_bots("Player1","Player2")
+
+    
