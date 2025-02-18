@@ -1,4 +1,9 @@
 import subprocess
+import os
+
+uploads_dir = "uploads"
+if not os.path.exists(uploads_dir):
+    os.makedirs(uploads_dir)
 
 class Player:
     def __init__(self, name):
@@ -70,6 +75,17 @@ def start_game(player1, player2):
     :param player2: Second Player object.
     :return: 0 if both boards are initialized successfully, -1 otherwise.
     """
+    def make_board(player):
+        file_name = f"{player.name}.txt"
+        board_str = subprocess.run(['py', f'{player.name}.py', 'initialize' ], capture_output=True, text = True).stdout
+        board_str = board_str[:-1]    #this generates a new line
+        file_path = os.path.join(uploads_dir, file_name)
+        with open(file_path, "w") as f:
+            f.write(board_str)
+        
+    make_board(player1)
+    make_board(player2)
+        
     def read_ship_placement(player):
         """
         Reads the ship placement from the player's .txt file and updates their ship_grid.
@@ -77,8 +93,9 @@ def start_game(player1, player2):
         :return: 0 if successful, -1 if any error occurs.
         """
         filename = f"{player.name}.txt"
+        file_path = os.path.join(uploads_dir, filename)
         try:
-            with open(filename, 'r') as file:
+            with open(file_path, 'r') as file:
                 for line in file:
                     # Parse the line: <ship_name>,<row1><col1>,<row2><col2>,...,<rowN><colN>
                     parts = line.strip().split(',')
@@ -143,6 +160,7 @@ def start_game(player1, player2):
         :param move_str: The move string returned by the player's script (e.g., "A1", "B2").
         :return: A tuple (row, col) representing the move, or None if the move is invalid.
         """
+
         def grid_to_string(attack_grid, ship_grid):
             """
             Converts both attack_grid and ship_grid into string representations.
@@ -180,7 +198,7 @@ def start_game(player1, player2):
         attack_grid_string, ship_grid_string = grid_to_string(current_player.attack_grid, current_player.ship_grid)
 
 
-        move_str = subprocess.run(['py', current_player.script, ship_grid_string, attack_grid_string], capture_output=True, text = True).stdout
+        move_str = subprocess.run(['py', os.path.join(uploads_dir, current_player.script), ship_grid_string, attack_grid_string], capture_output=True, text = True).stdout
         move_str = move_str[:-1]    #this generates a new line
         try:
             # Validate the move string format

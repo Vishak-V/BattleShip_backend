@@ -15,7 +15,7 @@ app = FastAPI()
 
 
 # Directory to save uploaded Python files
-UPLOAD_DIR = "./"
+UPLOAD_DIR = "./uploads/"
 
 # Ensure the upload directory exists
 Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
@@ -75,16 +75,19 @@ async def upload_files(files: List[UploadFile] = File(...)):
     return {"rankings": rankings}
 
 @app.post("/play/")
-async def play_two_bots(files: List[UploadFile] = File(...)):
-    if len(files) != 2:
-        return {"error": "Exactly two files must be uploaded."}
-    
+async def play_two_bots(file1: UploadFile, file2: UploadFile):
     bot_files = []
-    for file in files:
+    
+    # Save both files
+    for file in [file1, file2]:
         file_path = os.path.join(UPLOAD_DIR, file.filename)
         with open(file_path, "wb") as f:
             f.write(await file.read())
         bot_files.append(file.filename)
+
+    print(bot_files)
     
+    # Run the tournament with the uploaded files
     rankings = run_tournament(bot_files)
+    
     return {"rankings": rankings}
