@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile
 from typing import List
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from tournament import run_tournament
 import os
 import subprocess
@@ -13,6 +14,13 @@ app = FastAPI()
 # Initialize Docker client
 # client = docker.from_env()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Your Next.js app's URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Directory to save uploaded Python files
 UPLOAD_DIR = "./uploads/"
@@ -89,5 +97,5 @@ async def play_two_bots(file1: UploadFile, file2: UploadFile):
     
     # Run the tournament with the uploaded files
     rankings = run_tournament(bot_files)
-    
-    return {"rankings": rankings,"files":bot_files}
+    print(rankings)
+    return {"rankings": rankings}
