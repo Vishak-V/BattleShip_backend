@@ -77,7 +77,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
 @app.post("/play/")
 async def play_two_bots(file1: UploadFile, file2: UploadFile):
     bot_files = []
-    
+
     # Save both files
     for file in [file1, file2]:
         file_path = os.path.join(UPLOAD_DIR, file.filename)
@@ -85,9 +85,9 @@ async def play_two_bots(file1: UploadFile, file2: UploadFile):
             f.write(await file.read())
         bot_files.append(file.filename)
 
-    print(bot_files)
+    #print(bot_files)
     
     # Run the tournament with the uploaded files
     rankings = run_tournament(bot_files)
     
-    return {"rankings": rankings}
+    return {"rankings": rankings,"files":bot_files}

@@ -347,6 +347,6 @@ def play_bots(bot1:str,bot2:str):
     print("Player 2 wins: {player2.wins}")
     return winner
 
-play_bots("Player1","Player2")
+#play_bots("Player1","Player2")
 
     

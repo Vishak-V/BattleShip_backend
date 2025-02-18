@@ -4,7 +4,7 @@ from itertools import combinations
 
 def run_tournament(bot_files):
     scores = defaultdict(int, {bot: 0 for bot in bot_files})
-    num_games = 10
+    num_games = 3
     print(scores)
     for bot1, bot2 in combinations(bot_files, 2):
         for _ in range(num_games):
