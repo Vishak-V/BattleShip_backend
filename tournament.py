@@ -2,9 +2,9 @@ from player_sonam import play_bots
 from collections import defaultdict
 from itertools import combinations
 
-def run_tournament(bot_files):
-    scores = defaultdict(int, {bot: 0 for bot in bot_files})
-    num_games = 3
+def run_tournament(bot_files,num_games:int):
+    scores = defaultdict(int, {bot[-3]: 0 for bot in bot_files})
+
     print(scores)
     for bot1, bot2 in combinations(bot_files, 2):
         for _ in range(num_games):

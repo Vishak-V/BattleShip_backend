@@ -71,7 +71,7 @@ def hello():
 #         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.post("/tournament/")
-async def upload_files(files: List[UploadFile] = File(...)):
+async def upload_files(files: List[UploadFile]):
     bot_files = []
     for file in files:
         file_path = os.path.join(UPLOAD_DIR, file.filename)
@@ -79,7 +79,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
             f.write(await file.read())
         bot_files.append(file.filename)
     
-    rankings = run_tournament(bot_files)
+    rankings = run_tournament(bot_files,3)
     return {"rankings": rankings}
 
 @app.post("/play/")
@@ -96,6 +96,6 @@ async def play_two_bots(file1: UploadFile, file2: UploadFile):
     #print(bot_files)
     
     # Run the tournament with the uploaded files
-    rankings = run_tournament(bot_files)
+    rankings = run_tournament(bot_files,3)
     print(rankings)
     return {"rankings": rankings}
