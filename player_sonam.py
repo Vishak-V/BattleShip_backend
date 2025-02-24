@@ -343,8 +343,8 @@ def play_bots(bot1:str,bot2:str):
     # player1.display_board()
     winner = start_game(player1, player2)
     print(f"The winner is {winner}")
-    print("Player 1 wins: {player1.wins}")
-    print("Player 2 wins: {player2.wins}")
+    print("Player 1 wins: " + str(player1.wins))
+    print("Player 2 wins: " + str(player2.wins))
     return winner
 
 #play_bots("Player1","Player2")

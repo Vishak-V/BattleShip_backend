@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Request
 from typing import List
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,13 +71,23 @@ def hello():
 #         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.post("/tournament/")
-async def upload_files(files: List[UploadFile]):
+async def upload_files(request: Request):
+    form = await request.form()
     bot_files = []
-    for file in files:
-        file_path = os.path.join(UPLOAD_DIR, file.filename)
-        with open(file_path, "wb") as f:
-            f.write(await file.read())
-        bot_files.append(file.filename)
+    for key in form.keys():
+        if key.startswith('file'):
+            file = form[key]
+        
+            # Ensure upload directory exists
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            
+            # Save file
+            file_path = os.path.join(UPLOAD_DIR, file.filename)
+            with open(file_path, "wb") as buffer:
+                buffer.write(await file.read())
+            
+            bot_files.append(file.filename)
+            
     
     rankings = run_tournament(bot_files,3)
     return {"rankings": rankings}
