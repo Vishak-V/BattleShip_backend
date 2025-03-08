@@ -92,6 +92,29 @@ async def upload_files(request: Request):
     rankings = run_tournament(bot_files,3)
     return {"rankings": rankings}
 
+@app.post("/upload/")
+async def upload_files(request: Request):
+    form = await request.form()
+
+    for key in form.keys():
+        if key.startswith('file'):
+            file = form[key]
+        
+            # Ensure upload directory exists
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            
+            # Save file
+            file_path = os.path.join(UPLOAD_DIR, file.filename)
+            with open(file_path, "wb") as buffer:
+                buffer.write(await file.read())
+            
+
+    return {"message": "Files uploaded successfully"}
+            
+    
+    
+
+
 @app.post("/play/")
 async def play_two_bots(file1: UploadFile, file2: UploadFile):
     bot_files = []
