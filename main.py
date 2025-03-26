@@ -6,7 +6,6 @@ from tournament import run_tournament
 import os
 import subprocess
 import uuid
-import docker
 from pathlib import Path
 
 app = FastAPI()

@@ -23,10 +23,19 @@ if len(sys.argv) > 1 and sys.argv[1].lower() == "initialize":
     print(get_ships())
 else:
     # Generate a random character from 'A' to 'J'
-    random_char = chr(random.randint(ord('A'), ord('J')))
+    moves_str = sys.argv[3]
+    moves_list = moves_str.split(" ")
 
-    # Generate a random digit from '1' to '10'
-    random_digit = random.randint(1, 10)
+    while True:
+        random_char = chr(random.randint(ord('A'), ord('J')))
 
-    # Print the result
-    print(random_char + str(random_digit))
+        # Generate a random digit from '1' to '10'
+        random_digit = random.randint(1, 10)
+
+        move = random_char + str(random_digit)
+
+        if move in moves_list:
+            continue
+        else:
+            print(move)
+            break
