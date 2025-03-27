@@ -23,7 +23,7 @@ app.add_middleware(
 )
 
 # Directory to save uploaded Python files
-UPLOAD_DIR = "./uploads/"
+UPLOAD_DIR = "./tmp/"
 
 # Ensure the upload directory exists
 Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
