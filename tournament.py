@@ -17,7 +17,7 @@ def run_tournament(bot_files,num_games:int):
     
     rankings = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     print(rankings)
-    directory = 'uploads/'
+    directory = 'tmp/'
     txt_files = glob.glob(os.path.join(directory, '*.txt'))
     # Remove each file found
     for txt_file in txt_files:
