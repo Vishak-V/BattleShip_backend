@@ -132,4 +132,4 @@ async def play_two_bots(file1: UploadFile, file2: UploadFile,number_of_games: in
     rankings = run_tournament(bot_files, number_of_games)
     print(rankings)
     logging.info(f"Rankings: {rankings}")
-    return {"rankings": rankings}
+    return {"rankings": rankings} # Return the rankings as a JSON response
