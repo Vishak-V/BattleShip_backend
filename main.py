@@ -7,6 +7,7 @@ import os
 import subprocess
 import uuid
 from pathlib import Path
+import logging
 
 app = FastAPI()
 
@@ -15,7 +16,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Your Next.js app's URL
+    allow_origins=["http://localhost:3000","https://battleshiptournament.vercel.app"],  # Your Next.js app's URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -115,9 +116,9 @@ async def upload_files(request: Request):
 
 
 @app.post("/play/")
-async def play_two_bots(file1: UploadFile, file2: UploadFile):
+async def play_two_bots(file1: UploadFile, file2: UploadFile,number_of_games: int = 3):
     bot_files = []
-
+    logging.info("Received files for tournament")
     # Save both files
     for file in [file1, file2]:
         file_path = os.path.join(UPLOAD_DIR, file.filename)
@@ -125,9 +126,10 @@ async def play_two_bots(file1: UploadFile, file2: UploadFile):
             f.write(await file.read())
         bot_files.append(file.filename)
 
-    #print(bot_files)
+    logging.info(f"Files saved: {bot_files}")
     
     # Run the tournament with the uploaded files
-    rankings = run_tournament(bot_files,3)
+    rankings = run_tournament(bot_files, number_of_games)
     print(rankings)
+    logging.info(f"Rankings: {rankings}")
     return {"rankings": rankings}
