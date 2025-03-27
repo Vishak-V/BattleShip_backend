@@ -8,6 +8,7 @@ import subprocess
 import uuid
 from pathlib import Path
 import logging
+from os import stat
 
 app = FastAPI()
 
@@ -27,6 +28,8 @@ UPLOAD_DIR = "./tmp/"
 
 # Ensure the upload directory exists
 Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+
+os.chmod(UPLOAD_DIR, os.stat.S_IRWXU | stat.S_IRWXG | os.stat.S_IRWXO)
 
 
 # def run_python_in_docker(python_file_path: str):
