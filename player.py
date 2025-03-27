@@ -1,7 +1,7 @@
 import subprocess
 import os
 
-uploads_dir = "tmp/"
+uploads_dir = "tmp"
 if not os.path.exists(uploads_dir):
     os.makedirs(uploads_dir)
 
