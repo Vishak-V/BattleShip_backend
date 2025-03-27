@@ -27,9 +27,9 @@ app.add_middleware(
 UPLOAD_DIR = "./tmp/"
 
 # Ensure the upload directory exists
-Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+# Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
-os.chmod(UPLOAD_DIR, os.stat.S_IRWXU | stat.S_IRWXG | os.stat.S_IRWXO)
+# os.chmod(UPLOAD_DIR, os.stat.S_IRWXU | stat.S_IRWXG | os.stat.S_IRWXO)
 
 
 # def run_python_in_docker(python_file_path: str):
