@@ -1,9 +1,11 @@
 import subprocess
 import os
+import logging
 
 uploads_dir = "tmp"
 # if not os.path.exists(uploads_dir):
 #     os.makedirs(uploads_dir)
+logging.info(f'tmp-{os.path.exists(uploads_dir)}')
 
 class Player:
     def __init__(self, name):
