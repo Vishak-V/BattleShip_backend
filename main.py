@@ -5,9 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import RedirectResponse
 from tournament import run_tournament
 import os
-import subprocess
-import uuid
-import docker
 from pathlib import Path
 from starlette.middleware.sessions import SessionMiddleware
 from oauth_routes import router as auth_router
@@ -49,6 +46,12 @@ load_dotenv()  # Load environment variables from .env file
 
 # Initialize OAuth
 oauth = init_oauth()
+
+def create_tables():
+    Base.metadata.create_all(bind=engine)
+
+# Call this function when starting the app
+create_tables()
 
 app = FastAPI()
 
