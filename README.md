@@ -26,45 +26,92 @@ This repository contains the backend for an app that allows users to submit thei
 
 - Python 3.8 or higher
 - PostgreSQL database
-- Docker (optional, for containerized setup)
+- Docker 
 
-### Installation
+## Project Structure
 
-1. **Clone the repository**:
+Ensure your project has the following structure:
 
+```
+/your_project_directory
+├── main.py               # Your FastAPI application
+├── requirements.txt      # Python dependencies
+├── Dockerfile            # Docker configuration
+└── docker-compose.yml    # Docker Compose configuration
+```
+
+## Docker Files
+
+
+## Running the Container
+
+1. **Build and start the containers**:
    ```bash
-   git clone https://github.com/yourusername/battleship-ai-backend.git
-   cd battleship-ai-backend
+   docker-compose up -d
    ```
 
-2. **Create and activate a virtual environment**:
-
+2. **Check container status**:
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # For macOS/Linux
-   venv\Scripts\activate     # For Windows
+   docker ps
    ```
 
-3. **Install the required dependencies**:
-
+3. **View logs**:
    ```bash
-   pip install -r requirements.txt
+   docker-compose logs
+   # Or for a specific service
+   docker-compose logs api
    ```
 
-4. **Setup the database**:
-   - Ensure that you have PostgreSQL installed and running.
-   - Create a new database and configure the database connection in the `.env` file.
-
-5. **Run database migrations**:
-
+4. **Stop the containers**:
    ```bash
-   alembic upgrade head
+   docker-compose down
    ```
 
-6. **Start the application**:
+## Testing Database Connection
 
+1. **Access API endpoints**:
    ```bash
-   uvicorn main:app --reload
+   curl http://localhost:8000
    ```
+
+2. **If you've implemented a health check endpoint**:
+   ```bash
+   curl http://localhost:8000/health
+   ```
+
+3. **Connect to the database directly**:
+   ```bash
+   docker exec -it battleship_backend-db-1 psql -U postgres -d fastapi_db
+   ```
+
+## Rebuilding the Container
+
+If you make changes to your code or dependencies:
+
+```bash
+# Rebuild without cache
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+## Troubleshooting
+
+- **Container restarting**: Check logs using `docker-compose logs api`
+- **Database connection issues**: Verify environment variables and network settings
+- **Port conflicts**: Change the port mapping in docker-compose.yml
+- **Missing dependencies**: Update requirements.txt and rebuild
+
+## Environment Variables
+
+- `DATABASE_URL`: Connection string for PostgreSQL
+- `POSTGRES_PASSWORD`: Database password
+- `POSTGRES_USER`: Database username
+- `POSTGRES_DB`: Database name
+
+## Accessing the Application
+
+- API: http://localhost:8000
+- API Documentation: http://localhost:8000/docs
+- Database: localhost:5432
 
    The backend should now be running on `http://127.0.0.1:8000`.
