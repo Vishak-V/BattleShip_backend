@@ -19,6 +19,27 @@ import secrets
 from functools import wraps
 from starlette.middleware.base import BaseHTTPMiddleware
 import time
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.sql import text
+from fastapi import Request, Depends
+
+
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/fastapi_db")
+
+# Create SQLAlchemy engine
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -342,13 +363,22 @@ async def force_timeout(request: Request):
             content={"error": "Force timeout failed", "message": str(e)}
         )
 
+@app.get("/health")
+def health_check(db: Session = Depends(get_db)):
+    try:
+        # Execute a simple query
+        db.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
+
 # Add a simple test route
 @app.get("/test")
 async def test(user=Depends(auth_required)):
     return {"message": "API is working", "user": user}
 
 @app.get("/")
-async def hello(user=Depends(auth_required)):
+async def hello(user=Depends(auth_required),):
     # User is already authenticated due to the dependency
     return {"message": "Hello World", "user": user}
 

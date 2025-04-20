@@ -3,15 +3,12 @@ FROM python:3.9-slim
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Make installation more verbose and ensure it doesn't use cache
+RUN pip install --no-cache-dir -r requirements.txt --verbose
 
 COPY . .
 
-# Add gunicorn to requirements if not already there
-RUN pip install gunicorn
+EXPOSE 8000
 
-# Set environment variables
-ENV PORT=8080
-
-# Run the application
-CMD exec gunicorn --bind :$PORT main:app
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
