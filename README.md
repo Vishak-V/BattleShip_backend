@@ -103,10 +103,9 @@ docker-compose up -d
 
 ## Environment Variables
 
-- `DATABASE_URL`: Connection string for PostgreSQL
-- `POSTGRES_PASSWORD`: Database password
-- `POSTGRES_USER`: Database username
-- `POSTGRES_DB`: Database name
+- `FRONTEND_URL`: Connection string for frontend
+
+
 
 ## Accessing the Application
 
@@ -115,3 +114,84 @@ docker-compose up -d
 - Database: localhost:5432
 
    The backend should now be running on `http://127.0.0.1:8000`.
+
+# V2 Features
+
+## 1. User Authentication
+First, the user must be authenticated through OAuth (Google, GitHub, etc.). This creates a User record in the database with their information.
+
+## 2. Bot Upload Workflow
+The user needs to upload their bot files first:
+
+1. **Upload Bot File** (`POST /api/v2/bots/`):
+   - User uploads a Python file containing their bot's logic
+   - File is saved to disk with a unique filename
+   - A `BotUpload` record is created in the database with:
+     - Reference to the file on disk
+     - User as the uploader
+     - Original filename
+     - Optional description
+   - User can now see this bot in their list of available bots
+
+## 3. Tournament Creation Workflow
+Once the user has uploaded bot(s), they can create and run tournaments:
+
+1. **Create Tournament** (`POST /api/v2/tournaments/`):
+   - User creates a new tournament by providing:
+     - Tournament name
+     - Description (optional)
+     - Number of rounds (default: 3)
+     - List of bot IDs (optional - can add later)
+   - A `Tournament` record is created with status "pending"
+   
+2. **Register Bots to Tournament** (`POST /api/v2/tournaments/{tournament_id}/register`):
+   - If bots weren't added during creation, users can register bots to their tournament
+   - Creates `TournamentEntry` records linking bots to the tournament
+   - Can only be done when tournament status is "pending"
+
+3. **Start Tournament** (`POST /api/v2/tournaments/{tournament_id}/start`):
+   - User initiates the tournament execution
+   - System verifies there are at least 2 bots registered
+   - Tournament status changes to "running"
+   - Backend executes the tournament logic:
+     - Gets all bot filenames from database
+     - Runs the tournament using the existing `run_tournament` function
+     - Creates `TournamentResult` records with rankings, wins, losses, scores
+   - Tournament status updates to "completed" (or "failed" if error occurs)
+
+4. **View Results** (`GET /api/v2/tournaments/{tournament_id}`):
+   - User can retrieve tournament details and results
+   - Results include bot rankings, win/loss records, and scores
+
+## 4. Single Match Workflow (Alternative to Tournament)
+Users can also run individual matches between two bots:
+
+1. **Create Match** (`POST /api/v2/matches/`):
+   - User selects two bots they want to match
+   - Provides number of rounds
+   - Match is automatically executed
+   - A `Match` record is created with:
+     - Both bot references
+     - Match status (pending → running → completed)
+     - Winner information
+     - Win counts for each bot
+     - Game logs (if available)
+
+2. **View Match Results** (`GET /api/v2/matches/{match_id}`):
+   - User can see detailed match information and results
+
+## 5. User Dashboard Experience
+Throughout this process, users can:
+
+- View all their uploaded bots (`GET /api/v2/bots/`)
+- See their tournament history (`GET /api/v2/tournaments/`)
+- Check their match history (`GET /api/v2/matches/`)
+- Get profile statistics (`GET /api/v2/users/me`)
+
+The key improvement in this v2 API is that all data is persisted in the database, allowing users to:
+- Keep track of their bot history
+- Store tournament results for later analysis
+- Review past matches
+- Manage multiple tournaments without losing data
+
+The database design supports relationships between users, bots, tournaments, and matches, ensuring data integrity and enabling more sophisticated features in the future (like leaderboards, statistics analysis, etc.).

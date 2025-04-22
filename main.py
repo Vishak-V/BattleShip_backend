@@ -1,10 +1,13 @@
-from fastapi import FastAPI, File, UploadFile, Request, Depends, status, HTTPException
+from fastapi import FastAPI, File, UploadFile, Request, Depends, status, HTTPException, Query
 from typing import List, Optional, Callable
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import RedirectResponse
 from tournament import run_tournament
 import os
+import subprocess
+import uuid
+import docker
 from pathlib import Path
 from starlette.middleware.sessions import SessionMiddleware
 from oauth_routes import router as auth_router
@@ -36,8 +39,8 @@ load_dotenv()  # Load environment variables from .env file
 # Initialize OAuth
 oauth = init_oauth()
 
-def create_tables():
-    Base.metadata.create_all(bind=engine)
+# Create FastAPI app with explicit root_path to handle URL normalization
+app = FastAPI(root_path="")
 
 # Call this function when starting the app
 create_tables()
@@ -59,6 +62,21 @@ secret_key = os.getenv('SECRET_KEY')
 if not secret_key:
     secret_key = secrets.token_hex(32)
     logger.warning(f"No SECRET_KEY found in environment. Generated random key: {secret_key}")
+
+# Add a debug endpoint to check the exact URL and route matching
+@app.get("/debug/url")
+async def debug_url(request: Request):
+    """Debug endpoint to check URL and route matching"""
+    return {
+        "url": str(request.url),
+        "path": request.url.path,
+        "raw_path": request.scope.get("raw_path", b"").decode(),
+        "route": request.scope.get("route"),
+        "endpoint": request.scope.get("endpoint", {}).__name__ if request.scope.get("endpoint") else None,
+        "app_root_path": request.scope.get("root_path", ""),
+        "query_params": dict(request.query_params),
+        "headers": dict(request.headers),
+    }
 
 # Add a rate limiting middleware
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -132,6 +150,9 @@ class SessionTimeoutMiddleware(BaseHTTPMiddleware):
                 user_email = request.session.get('user', {}).get('email', 'unknown')
                 logger.info(f"Session expired for user {user_email} after {elapsed_time:.2f} seconds (timeout: {self.timeout_seconds})")
 
+                # Save the frontend URL before clearing the session
+                frontend_url = request.session.get('frontend_url')
+
                 # Create a new session with only the expired flag
                 # This effectively invalidates the old session
                 for key in list(request.session.keys()):
@@ -140,6 +161,10 @@ class SessionTimeoutMiddleware(BaseHTTPMiddleware):
                 # Set a flag to indicate session timeout
                 request.session['session_expired'] = True
                 request.session['timeout_time'] = current_time
+
+                # Restore the frontend URL
+                if frontend_url:
+                    request.session['frontend_url'] = frontend_url
 
                 # Only redirect if it's not an API call
                 if not request.url.path.startswith('/api/') and not request.url.path.startswith('/auth/'):
@@ -177,17 +202,131 @@ class SessionTimeoutMiddleware(BaseHTTPMiddleware):
 
         return response
 
-# Initialize Docker client
-# client = docker.from_env()
+# Add this class definition after the existing middleware classes but before adding any middleware to the app
+class NormalizePathMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app):
+        super().__init__(app)
+        logger.info("NormalizePathMiddleware initialized")
 
-# Update the CORS middleware configuration
+    async def dispatch(self, request, call_next):
+        # Normalize path to remove double slashes
+        if '//' in request.url.path:
+            path = request.url.path
+            while '//' in path:
+                path = path.replace('//', '/')
+
+            # Log the normalization
+            logger.info(f"Normalizing path: {request.url.path} -> {path}")
+
+            # IMPORTANT: Instead of redirecting, modify the request path in-place
+            # This preserves all cookies, headers, and session data
+            request.scope["path"] = path
+
+            # Update the raw_path as well
+            request.scope["raw_path"] = path.encode("utf-8")
+
+            logger.info(f"Modified request path in-place instead of redirecting")
+
+        # Continue with the request
+        return await call_next(request)
+
+# Update the CORS middleware configuration to allow dynamic origins
+def get_allowed_origins():
+    """Get allowed origins from environment or use defaults"""
+    # Get from environment variable if available
+    env_origins = os.getenv('ALLOWED_ORIGINS')
+    if env_origins:
+        origins = [origin.strip() for origin in env_origins.split(',')]
+        logger.info(f"Using origins from environment: {origins}")
+        return origins
+
+    default_origins = [
+        "http://localhost:3000",
+        "https://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://127.0.0.1:3000",
+        "https://battleshiptournament.vercel.app",  # Ensure this is included
+        os.getenv('FRONTEND_URL', 'https://battleshiptournament.vercel.app')
+    ]
+    logger.info(f"Using default origins: {default_origins}")
+    return default_origins
+
+# Add a debug endpoint to check CORS configuration
+@app.get("/debug/cors")
+async def debug_cors(request: Request):
+    """Debug endpoint to check CORS configuration"""
+    try:
+        # Get all headers
+        headers = {k: v for k, v in request.headers.items()}
+
+        # Get CORS-related headers
+        cors_headers = {
+            "origin": request.headers.get("origin"),
+            "referer": request.headers.get("referer"),
+            "host": request.headers.get("host"),
+        }
+
+        # Get allowed origins
+        allowed_origins = get_allowed_origins()
+
+        return {
+            "message": "CORS debug information",
+            "cors_headers": cors_headers,
+            "all_headers": headers,
+            "allowed_origins": allowed_origins,
+            "request_url": str(request.url),
+            "base_url": str(request.base_url),
+        }
+    except Exception as e:
+        logger.error(f"Error in CORS debug: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "CORS debug failed", "message": str(e)}
+        )
+
+# Add a debug endpoint to log cookies and headers
+@app.get("/debug/cookies")
+async def debug_cookies(request: Request):
+    """Debug endpoint to check cookies and headers"""
+    try:
+        # Get all cookies
+        cookies = request.cookies
+
+        # Get all headers
+        headers = {k: v for k, v in request.headers.items()}
+
+        # Get session data if available
+        session_data = {}
+        if "session" in request.scope:
+            session_data = {k: v for k, v in request.session.items()}
+
+        return {
+            "cookies": cookies,
+            "headers": headers,
+            "session_data": session_data,
+            "has_session": "session" in request.scope,
+            "session_cookie_name": "battleship_session",
+            "session_cookie_present": "battleship_session" in cookies
+        }
+    except Exception as e:
+        logger.error(f"Error in debug-cookies: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Debug cookies failed", "message": str(e)}
+        )
+
+# Update the middleware order - add NormalizePathMiddleware first
+app.add_middleware(NormalizePathMiddleware)
+
+# Then add the other middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", os.getenv('FRONTEND_URL', 'https://battleshiptournament.vercel.app')],
+    allow_origins=get_allowed_origins(),
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel app domains
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicitly list all allowed methods
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
-    expose_headers=["X-Session-Remaining", "X-Session-Status"],  # Expose the session headers
+    expose_headers=["X-Session-Remaining", "X-Session-Status"],
 )
 
 # Add the rate limiting middleware
@@ -197,13 +336,14 @@ app.add_middleware(RateLimitMiddleware, rate_limit_per_minute=120)  # 2 requests
 # This ensures the session is available when the timeout middleware runs
 # Set session timeout to 30 minutes (1800 seconds)
 SESSION_TIMEOUT = 1800  # 30 minutes in seconds
+# Update the session middleware configuration for cross-origin cookies
 app.add_middleware(
     SessionMiddleware,
     secret_key=secret_key,
     session_cookie="battleship_session",
     max_age=SESSION_TIMEOUT,  # 30 minutes
-    same_site="lax",  # Prevents CSRF
-    https_only=False,  # Set to True in production with HTTPS
+    same_site="none",  # CRITICAL: Change from "lax" to "none" to allow cross-site requests
+    https_only=True,  # CRITICAL: Must be True for SameSite=None to work in production
 )
 
 # Add the session timeout middleware with the same timeout value
@@ -248,8 +388,11 @@ async def api_invalidate_session(request: Request):
             content={"error": "Session invalidation failed", "message": str(e)}
         )
 
-# Authentication dependency for all routes
-async def auth_required(request: Request):
+# Modified authentication dependency that can be bypassed
+async def auth_required(
+    request: Request,
+    bypass: bool = Query(False, description="Set to true to bypass authentication (only works if BYPASS_AUTH is enabled)")
+):
     """
     Dependency to check if a user is authenticated
     Redirects to login if not authenticated
@@ -317,6 +460,12 @@ async def auth_check(request: Request):
         # Check if session has expired
         session_expired = request.session.get('session_expired', False)
 
+        # Get frontend URL
+        frontend_url = request.session.get('frontend_url', 'Not set')
+
+        # Get request headers for debugging
+        headers = {k: v for k, v in request.headers.items()}
+
         return {
             "session_exists": session_exists,
             "cookies": cookies,
@@ -327,7 +476,10 @@ async def auth_check(request: Request):
             "session_timeout_seconds": SESSION_TIMEOUT,
             "session_timeout_minutes": SESSION_TIMEOUT / 60,
             "session_expired": session_expired,
-            "current_time": time.time()
+            "current_time": time.time(),
+            "frontend_url": frontend_url,
+            "request_headers": headers,
+            "bypass_auth_enabled": BYPASS_AUTH
         }
     except Exception as e:
         logger.error(f"Error in auth-check: {str(e)}")
@@ -348,6 +500,7 @@ async def force_timeout(request: Request):
 
             # Save the user info temporarily
             user_info = request.session.get('user')
+            frontend_url = request.session.get('frontend_url')
 
             # Clear the entire session
             for key in list(request.session.keys()):
@@ -356,6 +509,10 @@ async def force_timeout(request: Request):
             # Set the expired flag
             request.session['session_expired'] = True
             request.session['timeout_time'] = time.time()
+
+            # Restore the frontend URL
+            if frontend_url:
+                request.session['frontend_url'] = frontend_url
 
             return {
                 "success": True,
@@ -374,22 +531,13 @@ async def force_timeout(request: Request):
             content={"error": "Force timeout failed", "message": str(e)}
         )
 
-@app.get("/health")
-def health_check(db: Session = Depends(get_db)):
-    try:
-        # Execute a simple query
-        db.execute(text("SELECT 1"))
-        return {"status": "ok", "database": "connected"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
-
 # Add a simple test route
 @app.get("/test")
 async def test(user=Depends(auth_required)):
     return {"message": "API is working", "user": user}
 
 @app.get("/")
-async def hello(user=Depends(auth_required),):
+async def hello(user=Depends(auth_required)):
     # User is already authenticated due to the dependency
     return {"message": "Hello World", "user": user}
 
@@ -460,6 +608,22 @@ async def protected_resource(user=Depends(auth_required)):
 # Add a public endpoint to check if user is authenticated
 @app.get("/api/auth-status")
 async def auth_status(request: Request):
+    # If authentication bypass is enabled, return a mock authenticated user
+    if BYPASS_AUTH:
+        return {
+            "authenticated": True,
+            "user": {
+                'id': 'dev-user-id',
+                'name': 'Development User',
+                'email': 'dev@example.com',
+                'provider': 'dev',
+                'university': 'Development University'
+            },
+            "session_remaining_seconds": 1800,
+            "session_timeout_minutes": 30,
+            "bypass_enabled": True
+        }
+
     # Check if session has expired flag
     if request.session.get('session_expired'):
         return {
@@ -487,6 +651,15 @@ async def auth_status(request: Request):
 @app.post("/api/extend-session")
 async def extend_session(request: Request):
     """Extend the user's session timeout"""
+    # If authentication bypass is enabled, just return success
+    if BYPASS_AUTH:
+        return {
+            "success": True,
+            "message": "Session extended (bypass mode)",
+            "session_timeout_minutes": SESSION_TIMEOUT / 60,
+            "bypass_enabled": True
+        }
+
     # Check if session has expired
     if request.session.get('session_expired'):
         return JSONResponse(
@@ -512,4 +685,32 @@ async def extend_session(request: Request):
         "success": True,
         "message": "Session extended",
         "session_timeout_minutes": SESSION_TIMEOUT / 60
+    }
+
+# Add a debug endpoint to toggle authentication bypass
+@app.get("/debug/toggle-auth-bypass")
+async def toggle_auth_bypass(enable: bool = Query(..., description="Set to true to enable auth bypass, false to disable")):
+    """Toggle authentication bypass for development purposes"""
+    global BYPASS_AUTH
+
+    # Only allow this in development environments
+    if os.getenv('ENVIRONMENT', 'development') == 'production':
+        return JSONResponse(
+            status_code=403,
+            content={"error": "Forbidden", "message": "This endpoint is not available in production"}
+        )
+
+    previous_state = BYPASS_AUTH
+    BYPASS_AUTH = enable
+
+    if enable:
+        logger.warning("⚠️ AUTHENTICATION BYPASS ENABLED - DO NOT USE IN PRODUCTION ⚠️")
+    else:
+        logger.info("Authentication bypass disabled")
+
+    return {
+        "success": True,
+        "previous_state": previous_state,
+        "current_state": BYPASS_AUTH,
+        "message": f"Authentication bypass {'enabled' if enable else 'disabled'}"
     }
