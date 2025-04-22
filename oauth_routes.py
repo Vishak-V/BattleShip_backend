@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Request, Depends, HTTPException, Query, status, Header
 from starlette.responses import RedirectResponse, JSONResponse
 import os
 import logging
 import time
 from auth import oauth, require_user, get_current_user, is_alabama_email
+from typing import Optional
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -12,14 +13,137 @@ logger = logging.getLogger(__name__)
 # Create a router for auth routes
 router = APIRouter(prefix="/auth")
 
+# Add a debug endpoint to check the exact URL and route matching
+@router.get("/debug-url")
+async def debug_url(request: Request):
+    """Debug endpoint to check URL and route matching"""
+    return {
+        "url": str(request.url),
+        "path": request.url.path,
+        "raw_path": request.scope.get("raw_path", b"").decode(),
+        "route": request.scope.get("route"),
+        "endpoint": request.scope.get("endpoint", {}).__name__ if request.scope.get("endpoint") else None,
+        "app_root_path": request.scope.get("root_path", ""),
+        "query_params": dict(request.query_params),
+        "headers": dict(request.headers),
+    }
+
+@router.get("/debug-session")
+async def debug_session(request: Request):
+    """Debug endpoint to check session data"""
+    return {
+        "session_exists": "session" in request.scope,
+        "session_data": {k: v for k, v in request.session.items()} if "session" in request.scope else {},
+        "cookies": request.cookies,
+        "headers": {k: v for k, v in request.headers.items()},
+        "user": request.session.get("user")
+    }
+
+@router.get("/bypass-auth")
+async def bypass_auth(request: Request):
+    """Temporary endpoint to bypass authentication for testing"""
+    # Create a mock user
+    mock_user = {
+        'id': 'mock-user-id',
+        'name': 'Mock User',
+        'email': 'mock@crimson.ua.edu',
+        'provider': 'mock',
+        'university': 'University of Alabama'
+    }
+
+    # Store in session
+    request.session['user'] = mock_user
+    request.session['last_activity'] = time.time()
+
+    logger.info(f"Bypass auth: Created mock user in session: {mock_user}")
+    logger.info(f"Session data after bypass: {dict(request.session)}")
+
+    return {
+        "success": True,
+        "message": "Authentication bypassed for testing",
+        "user": mock_user,
+        "session_data": dict(request.session)
+    }
+
+@router.get("/me")
+async def me(request: Request):
+    """Get current user info"""
+    try:
+        # Add detailed logging
+        logger.info(f"ME endpoint called with session: {dict(request.session) if 'session' in request.scope else 'No session'}")
+        logger.info(f"Cookies: {request.cookies}")
+        logger.info(f"User in session: {request.session.get('user')}")
+
+        # Check if session has expired flag
+        if request.session.get('session_expired'):
+            logger.info("Expired session detected in /me endpoint")
+            raise HTTPException(
+                status_code=401,
+                detail="Session expired",
+                headers={"X-Session-Status": "expired"}
+            )
+
+        user = get_current_user(request)
+        if user:
+            # Update last activity timestamp
+            request.session['last_activity'] = time.time()
+            logger.info(f"Returning user from session: {user}")
+            return user
+        else:
+            # Return 401 instead of using the dependency to avoid redirects
+            logger.info("No user found in session, returning 401")
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required"
+            )
+    except HTTPException:
+        # Re-raise HTTPExceptions without modifying them
+        raise
+    except Exception as e:
+        logger.error(f"Error in /me endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error retrieving user information"
+        )
+
+# Add routes with and without trailing slashes to handle both cases
 @router.get("/login")
-async def login(request: Request, redirect_uri: str = Query(None), reason: str = Query(None)):
+@router.get("/login/")
+async def login(request: Request, redirect_uri: str = Query(None), reason: str = Query(None), frontend_url: str = Query(None)):
     """Redirect to University of Alabama login"""
+    logger.info(f"Login request received with params: redirect_uri={redirect_uri}, reason={reason}, frontend_url={frontend_url}")
+    logger.info(f"Full URL: {request.url}")
+    logger.info(f"Query params: {request.query_params}")
+
+    # Store the frontend URL in the session for later use
+    if frontend_url:
+        request.session['frontend_url'] = frontend_url
+        logger.info(f"Stored frontend URL from param: {frontend_url}")
+    elif redirect_uri:
+        # Extract origin from redirect_uri
+        from urllib.parse import urlparse
+        parsed_url = urlparse(redirect_uri)
+        origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        request.session['frontend_url'] = origin
+        request.session['redirect_uri'] = redirect_uri
+        logger.info(f"Stored frontend URL from redirect_uri: {origin}")
+    else:
+        # Try to determine frontend URL from request
+        detected_url = get_frontend_url(request)
+        request.session['frontend_url'] = detected_url
+        logger.info(f"Detected and stored frontend URL: {detected_url}")
+
+    # Store the redirect_uri if provided
+    if redirect_uri:
+        request.session['redirect_uri'] = redirect_uri
+        logger.info(f"Stored redirect_uri: {redirect_uri}")
+
     # Clear any expired session flag
     if 'session_expired' in request.session:
         logger.info("Clearing expired session flag during login")
         for key in list(request.session.keys()):
-            request.session.pop(key, None)
+            if key != 'frontend_url' and key != 'redirect_uri':
+                request.session.pop(key, None)
 
     # Log the reason if provided
     if reason:
@@ -28,18 +152,81 @@ async def login(request: Request, redirect_uri: str = Query(None), reason: str =
     # Redirect directly to Azure AD login
     return RedirectResponse(url="/auth/login/azure")
 
+def get_frontend_url(request: Request, referer: Optional[str] = Header(None)) -> str:
+    """
+    Determine the frontend URL dynamically based on request information
+
+    This function tries multiple methods to determine the frontend URL:
+    1. Check for a frontend_url query parameter
+    2. Check the redirect_uri query parameter
+    3. Check the referer header
+    4. Check the origin header
+    5. Fall back to environment variable or default
+    """
+    # First check if it's explicitly provided in query params
+    frontend_url = request.query_params.get('frontend_url')
+    if frontend_url:
+        logger.info(f"Using frontend URL from query param: {frontend_url}")
+        return frontend_url
+
+    # Check redirect_uri parameter (common in OAuth flows)
+    redirect_uri = request.query_params.get('redirect_uri')
+    if redirect_uri:
+        # Extract origin from redirect_uri
+        from urllib.parse import urlparse
+        parsed_url = urlparse(redirect_uri)
+        origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        logger.info(f"Using frontend URL from redirect_uri: {origin}")
+        return origin
+
+    # Check referer header
+    if referer:
+        # Extract origin from referer (e.g., http://localhost:3000/some/path -> http://localhost:3000)
+        from urllib.parse import urlparse
+        parsed_url = urlparse(referer)
+        origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        logger.info(f"Using frontend URL from referer: {origin}")
+        return origin
+
+    # Check origin header
+    origin = request.headers.get('origin')
+    if origin:
+        logger.info(f"Using frontend URL from origin header: {origin}")
+        return origin
+
+    # Fall back to environment variable or default
+    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+    logger.info(f"Using default frontend URL: {frontend_url}")
+    return frontend_url
+
 @router.get("/login/azure")
 async def azure_login(request: Request):
     """Azure AD OAuth login for University of Alabama"""
     try:
-        # Clear any existing session data
+        # Preserve important session values
+        frontend_url = request.session.get('frontend_url')
+        redirect_uri = request.session.get('redirect_uri')
+
+        logger.info(f"Azure login with frontend_url={frontend_url}, redirect_uri={redirect_uri}")
+
+        # Clear any existing session data except what we want to keep
+        preserved_data = {}
+        if frontend_url:
+            preserved_data['frontend_url'] = frontend_url
+        if redirect_uri:
+            preserved_data['redirect_uri'] = redirect_uri
+
         for key in list(request.session.keys()):
             request.session.pop(key, None)
 
+        # Restore preserved data
+        for key, value in preserved_data.items():
+            request.session[key] = value
+
         # Get the redirect URI for after authentication
         # Use absolute URL to ensure correct callback URL
-        redirect_uri = str(request.base_url)[:-1] + "/auth/login/callback"
-        logger.info(f"Redirecting to Azure with callback URL: {redirect_uri}")
+        callback_uri = str(request.base_url).rstrip('/') + "/auth/login/callback"
+        logger.info(f"Redirecting to Azure with callback URL: {callback_uri}")
 
         # Make sure the session is working by setting a test value
         request.session['test_key'] = 'test_value'
@@ -50,7 +237,7 @@ async def azure_login(request: Request):
         request.session['oauth_state'] = state
         logger.info(f"Setting OAuth state: {state}")
 
-        return await oauth.azure.authorize_redirect(request, redirect_uri, state=state)
+        return await oauth.azure.authorize_redirect(request, callback_uri, state=state)
     except Exception as e:
         logger.error(f"Error in azure_login: {str(e)}")
         return JSONResponse(
@@ -68,6 +255,8 @@ async def azure_authorize(request: Request):
         logger.info(f"Session test in callback: {request.session.get('test_key')}")
         logger.info(f"OAuth state in session: {request.session.get('oauth_state')}")
         logger.info(f"Query parameters: {request.query_params}")
+        logger.info(f"Frontend URL in session: {request.session.get('frontend_url')}")
+        logger.info(f"Redirect URI in session: {request.session.get('redirect_uri')}")
 
         # Get the token
         try:
@@ -108,9 +297,19 @@ async def azure_authorize(request: Request):
 
         # Store user info in session
         try:
+            # Preserve important session values
+            frontend_url = request.session.get('frontend_url')
+            redirect_uri = request.session.get('redirect_uri')
+
             # Clear any existing session data first
             for key in list(request.session.keys()):
                 request.session.pop(key, None)
+
+            # Restore important values
+            if frontend_url:
+                request.session['frontend_url'] = frontend_url
+            if redirect_uri:
+                request.session['redirect_uri'] = redirect_uri
 
             request.session['user'] = {
                 'id': user_info['id'],
@@ -129,13 +328,22 @@ async def azure_authorize(request: Request):
                 content={"error": "Authentication failed", "message": f"Session error: {str(e)}"}
             )
 
-        # Redirect to frontend after successful login
-        # Use localhost:3000 for local development
-        frontend_url = "http://localhost:3000"
-        logger.info(f"Redirecting to frontend: {frontend_url}/login-success")
+        # Use the stored redirect_uri if available, otherwise construct from frontend_url
+        final_redirect_url = None
+        if redirect_uri:
+            final_redirect_url = redirect_uri
+            logger.info(f"Using stored redirect_uri for final redirect: {final_redirect_url}")
+        elif frontend_url:
+            final_redirect_url = f"{frontend_url}/login-success"
+            logger.info(f"Constructed redirect URL from frontend_url: {final_redirect_url}")
+        else:
+            # Fall back to environment variable or default
+            default_frontend = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+            final_redirect_url = f"{default_frontend}/login-success"
+            logger.info(f"Using default redirect URL: {final_redirect_url}")
 
         # Create a response with a cookie
-        response = RedirectResponse(url=f"{frontend_url}/login-success")
+        response = RedirectResponse(url=final_redirect_url)
         response.set_cookie(
             key="auth_status",
             value="authenticated",
@@ -165,13 +373,12 @@ async def logout(request: Request, reason: str = Query(None)):
         user_email = request.session.get('user', {}).get('email', 'unknown')
         logger.info(f"Logging out user {user_email}")
 
+        # Get the frontend URL before clearing the session
+        frontend_url = request.session.get('frontend_url') or get_frontend_url(request)
+
         # Clear the entire session
         for key in list(request.session.keys()):
             request.session.pop(key, None)
-
-        # Redirect to frontend after logout
-        # Use localhost:3000 for local development
-        frontend_url = "http://localhost:3000"
 
         # If the reason is timeout, redirect to login with timeout reason
         if reason == "timeout":
@@ -183,37 +390,6 @@ async def logout(request: Request, reason: str = Query(None)):
         return JSONResponse(
             status_code=500,
             content={"error": "Logout failed", "message": str(e)}
-        )
-
-@router.get("/me")
-async def me(request: Request):
-    """Get current user info"""
-    try:
-        # Check if session has expired flag
-        if request.session.get('session_expired'):
-            logger.info("Expired session detected in /me endpoint")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session expired",
-                headers={"X-Session-Status": "expired"}
-            )
-
-        user = get_current_user(request)
-        if user:
-            # Update last activity timestamp
-            request.session['last_activity'] = time.time()
-            return user
-        else:
-            # Return 401 instead of using the dependency to avoid redirects
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required"
-            )
-    except Exception as e:
-        logger.error(f"Error in /me endpoint: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error retrieving user information"
         )
 
 @router.get("/status")
