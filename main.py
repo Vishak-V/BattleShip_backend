@@ -39,6 +39,8 @@ load_dotenv()  # Load environment variables from .env file
 # Initialize OAuth
 oauth = init_oauth()
 
+def create_tables():
+    Base.metadata.create_all(bind=engine)
 # Create FastAPI app with explicit root_path to handle URL normalization
 app = FastAPI(root_path="")
 
