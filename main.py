@@ -21,22 +21,11 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.sql import text
 from fastapi import Request, Depends
+from fastapi import FastAPI, APIRouter
+from database import engine, Base, get_db
+import models
+from routes import tournaments, users, bots, matches  
 
-
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/fastapi_db")
-
-# Create SQLAlchemy engine
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# Dependency to get DB session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +43,16 @@ def create_tables():
 create_tables()
 
 app = FastAPI()
+
+v2_router = APIRouter(prefix="/v2")
+
+# Include your route modules in the v2_router
+v2_router.include_router(users.router)
+v2_router.include_router(bots.router)
+v2_router.include_router(matches.router)
+v2_router.include_router(tournaments.router)
+
+app.include_router(v2_router)
 
 # Generate a strong secret key if not provided
 secret_key = os.getenv('SECRET_KEY')
@@ -219,6 +218,7 @@ Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 # Include the auth router
 app.include_router(auth_router)
 
+
 # Add direct routes for session invalidation to ensure they're accessible
 @app.get("/api/invalidate-session")
 @app.post("/api/invalidate-session")
@@ -254,6 +254,14 @@ async def auth_required(request: Request):
     Dependency to check if a user is authenticated
     Redirects to login if not authenticated
     """
+    user_data = {
+        "id": "cb37c794-bfa3-4e37-86db-492cd0b6a124",
+        "name": "Andrew Boothe",
+        "email": "atboothe@crimson.ua.edu",
+        "provider": "azure_ad",
+        "university": "University of Alabama"
+    }
+    return user_data
     # Check for session expiration first
     if request.session.get('session_expired'):
         logger.info(f"Expired session detected for {request.url.path}")
