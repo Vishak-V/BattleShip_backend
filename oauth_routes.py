@@ -343,14 +343,16 @@ async def azure_authorize(request: Request):
             logger.info(f"Using default redirect URL: {final_redirect_url}")
 
         # Create a response with a cookie
+        # In the azure_authorize function (callback)
+        # When creating the response:
         response = RedirectResponse(url=final_redirect_url)
         response.set_cookie(
             key="auth_status",
             value="authenticated",
             httponly=False,  # Allow JavaScript access
             max_age=1800,    # 30 minutes
-            samesite="lax",  # Prevents CSRF
-            secure=False     # Set to True in production with HTTPS
+            samesite="none",  # CRITICAL: Allow cross-site
+            secure=True      # CRITICAL: Required for SameSite=None
         )
         return response
 

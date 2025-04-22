@@ -196,16 +196,19 @@ class NormalizePathMiddleware(BaseHTTPMiddleware):
             while '//' in path:
                 path = path.replace('//', '/')
 
-            # Reconstruct the URL with normalized path
-            url = str(request.url).replace(request.url.path, path)
-
             # Log the normalization
             logger.info(f"Normalizing path: {request.url.path} -> {path}")
 
-            # Redirect to the normalized URL
-            from starlette.responses import RedirectResponse
-            return RedirectResponse(url=url)
+            # IMPORTANT: Instead of redirecting, modify the request path in-place
+            # This preserves all cookies, headers, and session data
+            request.scope["path"] = path
 
+            # Update the raw_path as well
+            request.scope["raw_path"] = path.encode("utf-8")
+
+            logger.info(f"Modified request path in-place instead of redirecting")
+
+        # Continue with the request
         return await call_next(request)
 
 # Update the CORS middleware configuration to allow dynamic origins
@@ -218,13 +221,12 @@ def get_allowed_origins():
         logger.info(f"Using origins from environment: {origins}")
         return origins
 
-    # Default origins - include common development and production URLs
     default_origins = [
         "http://localhost:3000",
         "https://localhost:3000",
         "http://127.0.0.1:3000",
         "https://127.0.0.1:3000",
-        "https://battleshiptournament.vercel.app",
+        "https://battleshiptournament.vercel.app",  # Ensure this is included
         os.getenv('FRONTEND_URL', 'https://battleshiptournament.vercel.app')
     ]
     logger.info(f"Using default origins: {default_origins}")
@@ -263,6 +265,37 @@ async def debug_cors(request: Request):
             content={"error": "CORS debug failed", "message": str(e)}
         )
 
+# Add a debug endpoint to log cookies and headers
+@app.get("/debug/cookies")
+async def debug_cookies(request: Request):
+    """Debug endpoint to check cookies and headers"""
+    try:
+        # Get all cookies
+        cookies = request.cookies
+
+        # Get all headers
+        headers = {k: v for k, v in request.headers.items()}
+
+        # Get session data if available
+        session_data = {}
+        if "session" in request.scope:
+            session_data = {k: v for k, v in request.session.items()}
+
+        return {
+            "cookies": cookies,
+            "headers": headers,
+            "session_data": session_data,
+            "has_session": "session" in request.scope,
+            "session_cookie_name": "battleship_session",
+            "session_cookie_present": "battleship_session" in cookies
+        }
+    except Exception as e:
+        logger.error(f"Error in debug-cookies: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Debug cookies failed", "message": str(e)}
+        )
+
 # Update the middleware order - add NormalizePathMiddleware first
 app.add_middleware(NormalizePathMiddleware)
 
@@ -284,13 +317,14 @@ app.add_middleware(RateLimitMiddleware, rate_limit_per_minute=120)  # 2 requests
 # This ensures the session is available when the timeout middleware runs
 # Set session timeout to 30 minutes (1800 seconds)
 SESSION_TIMEOUT = 1800  # 30 minutes in seconds
+# Update the session middleware configuration for cross-origin cookies
 app.add_middleware(
     SessionMiddleware,
     secret_key=secret_key,
     session_cookie="battleship_session",
     max_age=SESSION_TIMEOUT,  # 30 minutes
-    same_site="lax",  # Prevents CSRF
-    https_only=False,  # Set to True in production with HTTPS
+    same_site="none",  # CRITICAL: Change from "lax" to "none" to allow cross-site requests
+    https_only=True,  # CRITICAL: Must be True for SameSite=None to work in production
 )
 
 # Add the session timeout middleware with the same timeout value
