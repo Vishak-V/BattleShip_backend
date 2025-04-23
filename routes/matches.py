@@ -58,22 +58,16 @@ async def create_match(
         match.completed_at = datetime.utcnow()
         
         if len(rankings) >= 2:
-            winner_filename = rankings[0][0]
-            winner_stats = rankings[0][1]
-            loser_stats = rankings[1][1]
+            winner_filename = rankings[0][1]
+            winner_stats = rankings[0][2]
+            loser_stats = rankings[1][2]
             
             # Determine winner
             winner_bot = bot1 if bot1.filename == winner_filename else bot2
             match.winner_id = winner_bot.id
-            match.bot1_wins = winner_stats.get('wins', 0) if winner_bot == bot1 else loser_stats.get('wins', 0)
-            match.bot2_wins = winner_stats.get('wins', 0) if winner_bot == bot2 else loser_stats.get('wins', 0)
+            match.bot1_wins = winner_stats if winner_bot == bot1 else loser_stats
+            match.bot2_wins = winner_stats if winner_bot == bot2 else loser_stats
             
-            # Store game logs if available
-            if 'logs' in winner_stats or 'logs' in loser_stats:
-                match.game_logs = json.dumps({
-                    'winner_logs': winner_stats.get('logs', []),
-                    'loser_logs': loser_stats.get('logs', [])
-                })
         
         db.commit()
         
