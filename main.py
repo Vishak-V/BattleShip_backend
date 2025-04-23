@@ -27,7 +27,8 @@ from fastapi import Request, Depends
 from fastapi import FastAPI, APIRouter
 from database import engine, Base, get_db
 import models
-from routes import tournaments, users, bots, matches  
+from routes import tournaments, users, bots, matches
+import traceback
 
 
 # Set up logging
@@ -41,13 +42,29 @@ oauth = init_oauth()
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
+
 # Create FastAPI app with explicit root_path to handle URL normalization
 app = FastAPI(root_path="")
+
+# Add global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global exception handler caught: {str(exc)}")
+    logger.error(traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "message": str(exc),
+            "path": request.url.path
+        }
+    )
 
 # Call this function when starting the app
 create_tables()
 
-app = FastAPI()
+# Define BYPASS_AUTH global variable
+BYPASS_AUTH = os.getenv('BYPASS_AUTH', 'false').lower() == 'true'
 
 v2_router = APIRouter(prefix="/v2")
 
@@ -65,20 +82,69 @@ if not secret_key:
     secret_key = secrets.token_hex(32)
     logger.warning(f"No SECRET_KEY found in environment. Generated random key: {secret_key}")
 
-# Add a debug endpoint to check the exact URL and route matching
+# Add a robust debug endpoint to check the exact URL and route matching
 @app.get("/debug/url")
 async def debug_url(request: Request):
     """Debug endpoint to check URL and route matching"""
-    return {
-        "url": str(request.url),
-        "path": request.url.path,
-        "raw_path": request.scope.get("raw_path", b"").decode(),
-        "route": request.scope.get("route"),
-        "endpoint": request.scope.get("endpoint", {}).__name__ if request.scope.get("endpoint") else None,
-        "app_root_path": request.scope.get("root_path", ""),
-        "query_params": dict(request.query_params),
-        "headers": dict(request.headers),
-    }
+    try:
+        # Safely extract headers
+        headers_dict = {}
+        try:
+            headers_dict = dict(request.headers)
+        except Exception as e:
+            headers_dict = {"error": f"Could not extract headers: {str(e)}"}
+
+        # Safely extract query params
+        query_params = {}
+        try:
+            query_params = dict(request.query_params)
+        except Exception as e:
+            query_params = {"error": f"Could not extract query params: {str(e)}"}
+
+        # Build response with error handling for each component
+        response_data = {
+            "url": str(request.url),
+            "path": request.url.path,
+            "raw_path": "unknown",
+            "headers": headers_dict,
+            "query_params": query_params,
+        }
+
+        # Try to add additional data with error handling
+        try:
+            response_data["raw_path"] = request.scope.get("raw_path", b"").decode()
+        except Exception as e:
+            response_data["raw_path_error"] = str(e)
+
+        try:
+            response_data["route"] = str(request.scope.get("route"))
+        except Exception as e:
+            response_data["route_error"] = str(e)
+
+        try:
+            endpoint = request.scope.get("endpoint")
+            response_data["endpoint"] = endpoint.__name__ if endpoint else None
+        except Exception as e:
+            response_data["endpoint_error"] = str(e)
+
+        try:
+            response_data["app_root_path"] = request.scope.get("root_path", "")
+        except Exception as e:
+            response_data["app_root_path_error"] = str(e)
+
+        return response_data
+    except Exception as e:
+        # Catch-all error handler
+        logger.error(f"Error in debug_url endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Internal server error in debug endpoint",
+                "message": str(e),
+                "url": str(request.url) if request else "unknown"
+            }
+        )
 
 # Add a rate limiting middleware
 class RateLimitMiddleware(BaseHTTPMiddleware):

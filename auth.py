@@ -38,14 +38,14 @@ async def require_user(request: Request)->User:
     """
     FastAPI dependency to require a logged-in user
     """
-    user_data = {
-        "id": "cb37c794-bfa3-4e37-86db-492cd0b6a124",
-        "name": "Andrew Boothe",
-        "email": "atboothe@crimson.ua.edu",
-        "oauth_provider": "azure_ad",
-        "university": "University of Alabama"
-    }
-    return User(**user_data)
+    # user_data = {
+    #     "id": "cb37c794-bfa3-4e37-86db-492cd0b6a124",
+    #     "name": "Andrew Boothe",
+    #     "email": "atboothe@crimson.ua.edu",
+    #     "oauth_provider": "azure_ad",
+    #     "university": "University of Alabama"
+    # }
+    # return User(**user_data)
 
     # Check if session has expired
     if request.session.get('session_expired'):
