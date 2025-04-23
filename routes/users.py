@@ -8,7 +8,7 @@ from sqlalchemy import func
 from database import get_db
 from auth import require_user
 
-router = APIRouter()
+router = APIRouter(tags=["Users"])
 
 @router.post("/user", response_model=List[dict])
 async def create_user_profile(

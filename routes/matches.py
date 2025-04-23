@@ -1,4 +1,5 @@
 # routes/matches.py
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 from typing import List
@@ -30,6 +31,7 @@ async def create_match(
     
     # Create match record
     match = Match(
+        id=uuid.uuid4(),
         creator_id=current_user.id,
         bot1_id=bot1_id,
         bot2_id=bot2_id,
@@ -46,11 +48,11 @@ async def create_match(
         match.status = "running"
         match.started_at = datetime.utcnow()
         db.commit()
-        
+        print(f"Match started between {bot1.filename} and {bot2.filename}")
         # Get bot filenames for the tournament engine
         bot_files = [bot1.filename, bot2.filename]
         rankings = run_tournament(bot_files, rounds)
-        
+        print(f"Match completed with rankings: {rankings}")
         # Process results
         match.status = "completed"
         match.completed_at = datetime.utcnow()
